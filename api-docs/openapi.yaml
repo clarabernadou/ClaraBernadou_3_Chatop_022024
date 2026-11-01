@@ -1,0 +1,358 @@
+openapi: 3.0.3
+info:
+  title: ChâTop — API back-end
+  version: 1.0.0
+  description: |
+    API REST de ChâTop, une plateforme de location saisonnière : comptes, annonces (locations) avec photo et messages envoyés aux propriétaires.
+
+    Cette documentation est rédigée à partir du code du dépôt (contrôleurs, DTO, services, configuration de sécurité Spring et annotations springdoc). Elle décrit l'API ; aucun serveur n'est hébergé ici.
+
+    **Authentification** : `/api/auth/register`, `/api/auth/login` et les images (`/images/**`) sont publiques. Toutes les autres routes exigent un jeton JWT dans l'en-tête `Authorization: Bearer <jeton>`. Les dates sont renvoyées au format `aaaa/mm/jj`.
+servers:
+  - url: http://localhost:8080
+    description: Serveur local
+tags:
+  - name: Authentification
+  - name: Locations
+  - name: Messages
+paths:
+  /api/auth/register:
+    post:
+      tags: [Authentification]
+      summary: Créer un compte
+      description: "Crée un utilisateur et renvoie directement un jeton. En cas de refus, l'API répond 401 avec le message « error »."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '200':
+          description: Compte créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Inscription refusée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                message: error
+  /api/auth/login:
+    post:
+      tags: [Authentification]
+      summary: Se connecter
+      description: "Renvoie un jeton. Avec de mauvais identifiants, l'API répond 401 avec le message « error »."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Connexion réussie
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Identifiants invalides
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                message: error
+  /api/auth/me:
+    get:
+      tags: [Authentification]
+      summary: Lire mes informations
+      description: "Renvoie l'utilisateur connecté tel que le modèle le décrit : identifiant, e-mail, mot de passe haché et dates."
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Utilisateur connecté
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/user/{id}:
+    get:
+      tags: [Authentification]
+      summary: Lire un utilisateur
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Utilisateur trouvé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Utilisateur introuvable
+  /api/rentals:
+    get:
+      tags: [Locations]
+      summary: Lister les locations
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Toutes les locations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rentals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Rental'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Locations]
+      summary: Créer une location
+      description: "Requête multipart (formulaire) : les champs de la location et la photo, envoyée sur Cloudinary. Le propriétaire est l'utilisateur connecté. Un fichier trop volumineux fait échouer la requête (« File size too large ! »)."
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RentalForm'
+      responses:
+        '200':
+          description: Location créée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                message: "Rental created !"
+        '401':
+          description: Jeton invalide ou champs invalides (le message est « error »)
+  /api/rentals/{id}:
+    get:
+      tags: [Locations]
+      summary: Lire une location
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Location trouvée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rental'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Locations]
+      summary: Modifier une location
+      description: "Requête de formulaire avec les champs à enregistrer. L'API répond 401 (message « error ») si les champs sont invalides ou si la location n'existe pas."
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RentalFields'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RentalFields'
+      responses:
+        '200':
+          description: Location modifiée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                message: "Rental updated !"
+        '401':
+          description: Jeton invalide, champs invalides ou location inconnue (le message est « error »)
+  /api/messages:
+    post:
+      tags: [Messages]
+      summary: Envoyer un message à propos d'une location
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageRequest'
+      responses:
+        '200':
+          description: Message enregistré
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                message: Message send with success
+        '400':
+          description: Champs invalides (le message est « error »)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+  responses:
+    Unauthorized:
+      description: Jeton absent, invalide ou expiré
+  schemas:
+    Message:
+      type: object
+      properties:
+        message:
+          type: string
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Jeton JWT
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+    Me:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+        password:
+          type: string
+          description: Mot de passe haché
+        created_at:
+          type: string
+          example: 2024/02/17
+        updated_at:
+          type: string
+          example: 2024/02/17
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        email:
+          type: string
+        created_at:
+          type: string
+          example: 2024/02/17
+        updated_at:
+          type: string
+          example: 2024/02/17
+    Rental:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        surface:
+          type: integer
+          description: Surface en m²
+        price:
+          type: integer
+          description: Prix par nuit en euros
+        description:
+          type: string
+        picture:
+          type: string
+          description: Adresse de la photo
+        owner_id:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          example: 2024/02/20
+        updated_at:
+          type: string
+          example: 2024/02/20
+    RentalFields:
+      type: object
+      required: [surface, price]
+      properties:
+        name:
+          type: string
+        surface:
+          type: integer
+        price:
+          type: integer
+        description:
+          type: string
+    RentalForm:
+      allOf:
+        - $ref: '#/components/schemas/RentalFields'
+        - type: object
+          properties:
+            picture:
+              type: string
+              format: binary
+              description: Photo de la location
+    MessageRequest:
+      type: object
+      required: [message, user_id, rental_id]
+      properties:
+        message:
+          type: string
+        user_id:
+          type: integer
+        rental_id:
+          type: integer
